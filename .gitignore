@@ -1,0 +1,7 @@
+node_modules/
+.env
+database.json
+deployments/*
+!deployments/.gitkeep
+templates/*
+!templates/.gitkeep
