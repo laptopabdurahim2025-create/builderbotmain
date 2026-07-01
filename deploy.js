@@ -153,18 +153,31 @@ async function deploy(templateFileName, userId, replacements = {}) {
     const zip = new AdmZip(zipPath);
     zip.extractAllTo(deployDir, true);
 
-    // Unwrap single root folder
-    const items = fs.readdirSync(deployDir);
-    if (items.length === 1) {
+    // Unwrap nested root folders (handles same-name nesting like folder/folder/folder/...)
+    let unwrapCount = 0;
+    const MAX_UNWRAP = 10;
+    while (unwrapCount < MAX_UNWRAP) {
+      const items = fs.readdirSync(deployDir).filter(i => i !== '.DS_Store' && i !== '__MACOSX');
+      if (items.length !== 1) break;
+
       const singleItem = path.join(deployDir, items[0]);
-      if (fs.statSync(singleItem).isDirectory()) {
-        console.log('📂 Unwrapping single root folder...');
-        const innerItems = fs.readdirSync(singleItem);
-        for (const item of innerItems) {
-          fs.moveSync(path.join(singleItem, item), path.join(deployDir, item), { overwrite: true });
-        }
-        fs.removeSync(singleItem);
+      if (!fs.statSync(singleItem).isDirectory()) break;
+
+      console.log(`📂 Unwrapping root folder: ${items[0]} (level ${unwrapCount + 1})`);
+
+      // Use temp directory to avoid rename conflicts when inner folder has same name
+      const tempDir = path.join(deployDir, `__unwrap_temp_${Date.now()}`);
+      fs.moveSync(singleItem, tempDir, { overwrite: true });
+
+      const innerItems = fs.readdirSync(tempDir);
+      for (const item of innerItems) {
+        fs.moveSync(path.join(tempDir, item), path.join(deployDir, item), { overwrite: true });
       }
+      fs.removeSync(tempDir);
+      unwrapCount++;
+    }
+    if (unwrapCount > 0) {
+      console.log(`✅ Unwrapped ${unwrapCount} level(s) of nesting`);
     }
     console.log('✅ Extraction complete');
   } catch (err) {
