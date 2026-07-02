@@ -117,12 +117,10 @@ function detectMainFile(deployDir) {
         return pkg.main;
     } catch {}
   }
-
   const fallbacks = ["index.js", "bot.js", "app.js", "server.js", "main.js"];
   for (const f of fallbacks) {
     if (fs.existsSync(path.join(deployDir, f))) return f;
   }
-
   return "index.js";
 }
 
@@ -147,12 +145,10 @@ function scanTemplatePlaceholders(templateFileName) {
   try {
     const zip = new AdmZip(zipPath);
     const entries = zip.getEntries();
-
     for (const entry of entries) {
       if (entry.isDirectory) continue;
       const ext = path.extname(entry.entryName).toLowerCase();
       if (BINARY_EXTENSIONS.has(ext)) continue;
-
       try {
         const content = entry.getData().toString("utf8");
         for (const ph of KNOWN_PLACEHOLDERS) {
@@ -167,20 +163,26 @@ function scanTemplatePlaceholders(templateFileName) {
   return Array.from(found);
 }
 
-async function deploy(templateFileName, userId, replacements = {}) {
+// ✅ FIX: purchaseId asosida deploy — har bir bot alohida papka va process
+async function deploy(templateFileName, userId, purchaseId, replacements = {}) {
   const zipPath = path.join(TEMPLATES_DIR, templateFileName);
-  const deployDir = path.join(DEPLOYMENTS_DIR, String(userId));
-  const processName = `bot_${userId}`;
+
+  // ✅ Har bir deployment uchun unique ID ishlatamiz
+  const deployId = `${userId}_${purchaseId}`;
+  const deployDir = path.join(DEPLOYMENTS_DIR, deployId);
+  const processName = `bot_${deployId}`;
 
   console.log(`\n${"=".repeat(60)}`);
-  console.log(`🚀 DEPLOYING for user ${userId}`);
+  console.log(`🚀 DEPLOYING for user ${userId}, purchase ${purchaseId}`);
   console.log(`Template: ${templateFileName}`);
+  console.log(`Deploy dir: ${deployDir}`);
+  console.log(`Process: ${processName}`);
   console.log(`${"=".repeat(60)}`);
 
-  // Stop existing
+  // Stop existing if any
   try {
     execSync(`pm2 delete ${processName}`, { stdio: "ignore" });
-    console.log(`🛑 Stopped: ${processName}`);
+    console.log(`🛑 Stopped existing: ${processName}`);
   } catch {}
 
   // Validate ZIP
@@ -195,12 +197,13 @@ async function deploy(templateFileName, userId, replacements = {}) {
   fs.ensureDirSync(deployDir);
   console.log(`📁 Created: ${deployDir}`);
 
-  // Extract
+  // Extract ZIP
   try {
     console.log("📦 Extracting ZIP...");
     const zip = new AdmZip(zipPath);
     zip.extractAllTo(deployDir, true);
 
+    // Unwrap nested root folders
     let unwrapCount = 0;
     const MAX_UNWRAP = 10;
     while (unwrapCount < MAX_UNWRAP) {
@@ -232,7 +235,6 @@ async function deploy(templateFileName, userId, replacements = {}) {
     if (unwrapCount > 0) {
       console.log(`✅ Unwrapped ${unwrapCount} level(s) of nesting`);
     }
-
     console.log("✅ Extraction complete");
   } catch (err) {
     throw new Error(`Failed to extract ZIP: ${err.message}`);
@@ -242,7 +244,7 @@ async function deploy(templateFileName, userId, replacements = {}) {
   console.log("🔄 Replacing placeholders...");
   replacePlaceholders(deployDir, replacements);
 
-  // Delete existing node_modules
+  // Delete existing node_modules (architecture mismatch fix)
   const nodeModulesPath = path.join(deployDir, "node_modules");
   if (fs.existsSync(nodeModulesPath)) {
     console.log("🗑️ Removing existing node_modules...");
@@ -292,17 +294,27 @@ async function deploy(templateFileName, userId, replacements = {}) {
     throw new Error(`PM2 start failed:\n${stderr}`);
   }
 
-  return { success: true, processName, deployDir, mainFile, userId };
+  return {
+    success: true,
+    processName,
+    deployDir,
+    mainFile,
+    userId,
+    purchaseId,
+  };
 }
 
-async function undeploy(userId) {
-  const processName = `bot_${userId}`;
-  const deployDir = path.join(DEPLOYMENTS_DIR, String(userId));
+async function undeploy(userId, purchaseId) {
+  const deployId = `${userId}_${purchaseId}`;
+  const processName = `bot_${deployId}`;
+  const deployDir = path.join(DEPLOYMENTS_DIR, deployId);
 
   try {
     execSync(`pm2 delete ${processName}`, { stdio: "ignore" });
   } catch {}
+
   if (fs.existsSync(deployDir)) fs.removeSync(deployDir);
+
   try {
     execSync("pm2 save", { stdio: "ignore" });
   } catch {}

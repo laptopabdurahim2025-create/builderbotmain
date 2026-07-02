@@ -54,6 +54,16 @@ function loadDB() {
       if (typeof t.priceUZS !== "number") t.priceUZS = t.price * 100;
     }
 
+    // ✅ Purchases uchun processName va deployId backfill
+    for (const p of data.purchases) {
+      if (!p.deployId) {
+        p.deployId = `${p.userId}_${p.id}`;
+      }
+      if (!p.processName) {
+        p.processName = `bot_${p.deployId}`;
+      }
+    }
+
     return data;
   } catch {
     const fresh = {
@@ -116,15 +126,6 @@ function getBalance(userId) {
   return u ? u.balance : 0;
 }
 
-function addBalance(userId, amount) {
-  const db = loadDB();
-  const u = db.users.find((x) => x.id === userId);
-  if (!u) return 0;
-  u.balance = Math.round((u.balance + amount) * 100) / 100;
-  saveDB(db);
-  return u.balance;
-}
-
 function formatUZS(amount) {
   return Number(amount).toLocaleString("uz-UZ").replace(/,/g, " ") + " UZS";
 }
@@ -178,8 +179,7 @@ const PLACEHOLDER_INFO = {
   },
   YOUR_TELEGRAM_ID: {
     label: "👤 Telegram ID",
-    prompt:
-      "👤 Telegram ID raqamingizni yuboring:\n\nSizning ID: `{USER_ID}` — shuni yuboring yoki boshqa ID kiriting:",
+    prompt: "👤 Telegram ID raqamingizni yuboring:\n\nSizning ID: `{USER_ID}`",
     validate: (val) => /^\d{5,15}$/.test(val.trim()),
     error: "❌ ID faqat raqamlardan iborat bo'lishi kerak! Qaytadan yuboring:",
   },
@@ -313,7 +313,7 @@ function getBackToAdminInline() {
 }
 
 // ============================================================
-// PM2 HELPERS
+// PM2 HELPERS — ✅ processName asosida ishlaydi
 // ============================================================
 function getPm2Status(processName) {
   try {
@@ -568,7 +568,7 @@ async function showCatalog(chatId, userId) {
 }
 
 // ============================================================
-// MY BOTS
+// MY BOTS — ✅ Har bir purchase uchun alohida processName
 // ============================================================
 async function showMyBots(chatId, userId) {
   const db = loadDB();
@@ -599,7 +599,9 @@ async function showMyBots(chatId, userId) {
   );
 
   for (const purchase of myPurchases) {
-    const processName = `bot_${userId}`;
+    // ✅ Har bir bot o'z processNamega ega
+    const processName =
+      purchase.processName || `bot_${purchase.userId}_${purchase.id}`;
     const pm2Info = getPm2Status(processName);
 
     let statusEmoji, statusText;
@@ -707,8 +709,8 @@ async function sendHelpMessage(chatId, userId) {
     `  • 🔄 Qayta ishga tushirish\n` +
     `  • 📋 Loglarni ko'rish\n` +
     `  • 🗑️ O'chirish\n\n` +
-    `💰 *Pul ishlash* — Promokod, kunlik bonus va referal havola orqali hamyoningizga pul qo'shing\n\n` +
-    `💳 *Hamyonni to'ldirish* — Kartadan hamyoningizga pul o'tkazing\n\n` +
+    `💰 *Pul ishlash* — Promokod, kunlik bonus va referal havola\n\n` +
+    `💳 *Hamyonni to'ldirish* — Kartadan hamyonga pul o'tkazing\n\n` +
     `📊 *Statistika* — Umumiy ma'lumotlar\n\n` +
     `${"━".repeat(30)}\n\n` +
     `📝 *Qanday ishlaydi?*\n\n` +
@@ -741,7 +743,7 @@ async function showEarnMoney(chatId, userId) {
       `${"━".repeat(28)}\n\n` +
       `🎟️ *Promokod* — promokodni kiritib bonus oling\n` +
       `🎁 *Kunlik bonus* — har kuni ${formatUZS(DAILY_BONUS)} oling\n` +
-      `🔗 *Referal havola* — do'stlaringizni taklif qiling, har biri uchun ${formatUZS(REFERRAL_BONUS)}\n\n` +
+      `🔗 *Referal havola* — har referal uchun ${formatUZS(REFERRAL_BONUS)}\n\n` +
       `👇 Bo'limni tanlang:`,
     { parse_mode: "Markdown", ...getEarnMoneyKeyboard() },
   );
@@ -778,7 +780,9 @@ async function redeemPromoCode(chatId, userId, rawCode) {
     return bot.sendMessage(
       chatId,
       "⚠️ Siz bu promokodni allaqachon ishlatgansiz.",
-      { ...getEarnMoneyKeyboard() },
+      {
+        ...getEarnMoneyKeyboard(),
+      },
     );
   }
 
@@ -786,7 +790,9 @@ async function redeemPromoCode(chatId, userId, rawCode) {
     return bot.sendMessage(
       chatId,
       "❌ Bu promokodning ishlatilish limiti tugagan.",
-      { ...getEarnMoneyKeyboard() },
+      {
+        ...getEarnMoneyKeyboard(),
+      },
     );
   }
 
@@ -893,7 +899,7 @@ async function handleTopupAmount(chatId, userId, text) {
       `Quyidagi karta raqamiga aynan *${formatUZS(amount)}* miqdorida pul o'tkazing:\n\n` +
       `\`${CARD_NUMBER}\`\n\n` +
       `⏰ Sizda *5 daqiqa* vaqt bor.\n\n` +
-      `To'lovni amalga oshirgach, chekning (skrinshotning) rasmini shu yerga yuboring.`,
+      `To'lovni amalga oshirgach, chekning rasmini shu yerga yuboring.`,
     {
       parse_mode: "Markdown",
       reply_markup: {
@@ -934,7 +940,7 @@ async function handleTopupScreenshot(msg, state) {
 
   await bot.sendMessage(
     chatId,
-    `✅ *Chek qabul qilindi!*\n\n💰 Miqdor: ${formatUZS(state.amount)}\n\nAdmin tekshirib, tasdiqlagandan so'ng hamyoningizga pul tushadi. Iltimos, kuting.`,
+    `✅ *Chek qabul qilindi!*\n\n💰 Miqdor: ${formatUZS(state.amount)}\n\nAdmin tekshirib, tasdiqlagandan so'ng hamyoningizga pul tushadi.`,
     { parse_mode: "Markdown", ...getBackToMainInline() },
   );
 
@@ -1055,7 +1061,7 @@ async function showAdminStats(chatId) {
     `💰 Jami xaridlar: *${totalPurchases}*\n` +
     `🚀 Aktiv deploylar: *${activeDeploys}*\n` +
     `👥 Foydalanuvchilar: *${totalUsers}*\n` +
-    `⭐ Jami daromad: *${totalRevenue} Stars*\n` +
+    `💵 Jami daromad: *${totalRevenue} UZS/Stars*\n` +
     `🔧 PM2 botlar: *${pm2Count}*\n\n` +
     `${"━".repeat(30)}\n\n` +
     `📋 *So'nggi xaridlar:*\n${recentText || "  Xaridlar yo'q"}`;
@@ -1092,6 +1098,7 @@ async function showAdminUsers(chatId) {
     text +=
       `${i + 1}. *${u.firstName}* ${username}\n` +
       `   🆔 \`${u.id}\` | 🛒 ${purchases.length} xarid | 🚀 ${deployed} deploy\n` +
+      `   💼 Balans: ${formatUZS(u.balance || 0)}\n` +
       `   📅 Oxirgi: ${lastSeen}\n\n`;
   }
 
@@ -1106,7 +1113,7 @@ async function showAdminUsers(chatId) {
 }
 
 // ============================================================
-// ADMIN DEPLOYMENTS
+// ADMIN DEPLOYMENTS — ✅ Har bir purchase alohida
 // ============================================================
 async function showAdminDeployments(chatId) {
   const db = loadDB();
@@ -1122,7 +1129,7 @@ async function showAdminDeployments(chatId) {
 
   let text = `🗂️ *Aktiv deploymentlar — ${activeDeploys.length} ta*\n\n${"━".repeat(30)}\n\n`;
   for (const p of activeDeploys) {
-    const processName = `bot_${p.userId}`;
+    const processName = p.processName || `bot_${p.userId}_${p.id}`;
     const pm2Info = getPm2Status(processName);
     const statusEmoji = pm2Info
       ? pm2Info.status === "online"
@@ -1133,7 +1140,8 @@ async function showAdminDeployments(chatId) {
     text +=
       `${statusEmoji} *${p.templateName}*\n` +
       `  👤 User: \`${p.userId}\`\n` +
-      `  🔧 Process: \`${processName}\` — ${statusText}\n\n`;
+      `  🔧 Process: \`${processName}\` — ${statusText}\n` +
+      `  📅 ${new Date(p.date).toLocaleDateString("uz-UZ")}\n\n`;
   }
 
   await bot.sendMessage(chatId, text, {
@@ -1179,6 +1187,7 @@ bot.on("message", async (msg) => {
     clearState(userId);
     return sendHelpMessage(chatId, userId);
   }
+
   if (text === "⚙️ Admin panel" && isAdmin(userId)) {
     clearState(userId);
     return bot.sendMessage(
@@ -1355,7 +1364,7 @@ bot.on("message", async (msg) => {
     if (!/^[A-Z0-9_-]{3,20}$/.test(code)) {
       return bot.sendMessage(
         chatId,
-        "❌ Promokod 3-20 belgidan iborat bo'lishi va faqat harf/raqam/`_`/`-` dan tuzilishi kerak. Qaytadan kiriting:",
+        "❌ Promokod 3-20 belgidan iborat bo'lishi va faqat harf/raqam/`_`/`-` dan tuzilishi kerak. Qaytadan:",
       );
     }
     const db = loadDB();
@@ -1457,6 +1466,7 @@ bot.on("message", async (msg) => {
       chatId,
       userId,
       state.templateId,
+      state.purchaseId,
       state.collectedValues,
     );
   }
@@ -1618,7 +1628,6 @@ bot.on("callback_query", async (query) => {
 
   await bot.answerCallbackQuery(query.id);
 
-  // ── Navigation ──
   if (data === "back_main") {
     clearState(userId);
     return bot.sendMessage(chatId, "🏠 *Asosiy menyu*\n\n👇 Tanlang:", {
@@ -1639,12 +1648,10 @@ bot.on("callback_query", async (query) => {
     clearState(userId);
     return showCatalog(chatId, userId);
   }
-
   if (data === "go_mybots") {
     return showMyBots(chatId, userId);
   }
 
-  // ── Admin: Cancel ──
   if (data === "admin_cancel" && isAdmin(userId)) {
     clearState(userId);
     return bot.sendMessage(chatId, "❌ Bekor qilindi.", {
@@ -1664,7 +1671,7 @@ bot.on("callback_query", async (query) => {
     });
   }
 
-  // ── Admin: List templates ──
+  // ── Admin: List ──
   if (data === "admin_list" && isAdmin(userId)) {
     const db = loadDB();
     if (db.templates.length === 0) {
@@ -1709,7 +1716,6 @@ bot.on("callback_query", async (query) => {
     });
   }
 
-  // ── Admin: Confirm delete ──
   if (data.startsWith("confirm_delete_") && isAdmin(userId)) {
     const templateId = data.replace("confirm_delete_", "");
     const db = loadDB();
@@ -1731,7 +1737,7 @@ bot.on("callback_query", async (query) => {
     });
   }
 
-  // ── Admin: Edit (choose template) ──
+  // ── Admin: Edit ──
   if (data === "admin_edit" && isAdmin(userId)) {
     const db = loadDB();
     if (db.templates.length === 0) {
@@ -1751,7 +1757,6 @@ bot.on("callback_query", async (query) => {
     });
   }
 
-  // ── Admin: Edit template options ──
   if (data.startsWith("edit_tmpl_") && isAdmin(userId)) {
     const templateId = data.replace("edit_tmpl_", "");
     const db = loadDB();
@@ -1764,7 +1769,7 @@ bot.on("callback_query", async (query) => {
     const priceUZS = tmpl.priceUZS || tmpl.price * 100;
     return bot.sendMessage(
       chatId,
-      `✏️ *${tmpl.name}* — nimani o'zgartirmoqchisiz?\n\n⭐ Stars narxi: ${tmpl.price} Stars\n💰 UZS narxi: ${formatUZS(priceUZS)}`,
+      `✏️ *${tmpl.name}* — nimani o'zgartirmoqchisiz?\n\n⭐ Stars: ${tmpl.price}\n💰 UZS: ${formatUZS(priceUZS)}`,
       {
         parse_mode: "Markdown",
         reply_markup: {
@@ -1788,7 +1793,6 @@ bot.on("callback_query", async (query) => {
     );
   }
 
-  // ── Admin: Edit name ──
   if (data.startsWith("editname_") && isAdmin(userId)) {
     const templateId = data.replace("editname_", "");
     setState(userId, { step: "waiting_edit_name", templateId });
@@ -1801,7 +1805,6 @@ bot.on("callback_query", async (query) => {
     });
   }
 
-  // ── Admin: Edit price ──
   if (data.startsWith("editprice_") && isAdmin(userId)) {
     const templateId = data.replace("editprice_", "");
     setState(userId, { step: "waiting_edit_price", templateId });
@@ -1814,17 +1817,14 @@ bot.on("callback_query", async (query) => {
     });
   }
 
-  // ── Admin: Users ──
-  if (data === "admin_users" && isAdmin(userId)) {
-    return showAdminUsers(chatId);
-  }
+  if (data === "admin_users" && isAdmin(userId)) return showAdminUsers(chatId);
+  if (data === "admin_stats" && isAdmin(userId)) return showAdminStats(chatId);
+  if (data === "admin_deployments" && isAdmin(userId))
+    return showAdminDeployments(chatId);
+  if (data === "admin_topups" && isAdmin(userId))
+    return showAdminTopups(chatId);
+  if (data === "admin_promo" && isAdmin(userId)) return showAdminPromo(chatId);
 
-  // ── Admin: Stats ──
-  if (data === "admin_stats" && isAdmin(userId)) {
-    return showAdminStats(chatId);
-  }
-
-  // ── Admin: Broadcast ──
   if (data === "admin_broadcast" && isAdmin(userId)) {
     setState(userId, { step: "waiting_broadcast_message" });
     return bot.sendMessage(
@@ -1841,7 +1841,6 @@ bot.on("callback_query", async (query) => {
     );
   }
 
-  // ── Admin: Restart main bot ──
   if (data === "admin_restart_bot" && isAdmin(userId)) {
     return bot.sendMessage(
       chatId,
@@ -1871,21 +1870,6 @@ bot.on("callback_query", async (query) => {
     return;
   }
 
-  // ── Admin: Deployments ──
-  if (data === "admin_deployments" && isAdmin(userId)) {
-    return showAdminDeployments(chatId);
-  }
-
-  // ── Earn money ──
-  if (data === "earn_promo") return handlePromoStart(chatId, userId);
-  if (data === "earn_daily") return handleDailyBonus(chatId, userId);
-  if (data === "earn_referral") return showReferralInfo(chatId, userId);
-
-  // ── Admin: Promo codes ──
-  if (data === "admin_promo" && isAdmin(userId)) {
-    return showAdminPromo(chatId);
-  }
-
   if (data === "admin_promo_add" && isAdmin(userId)) {
     setState(userId, { step: "waiting_promo_code_input" });
     return bot.sendMessage(
@@ -1902,16 +1886,17 @@ bot.on("callback_query", async (query) => {
     );
   }
 
-  // ── Admin: Top-ups ──
-  if (data === "admin_topups" && isAdmin(userId)) {
-    return showAdminTopups(chatId);
-  }
+  // ── Earn money ──
+  if (data === "earn_promo") return handlePromoStart(chatId, userId);
+  if (data === "earn_daily") return handleDailyBonus(chatId, userId);
+  if (data === "earn_referral") return showReferralInfo(chatId, userId);
+  if (data === "go_topup") return showWalletTopupPrompt(chatId, userId);
 
+  // ── Approve/Reject topup ──
   if (data.startsWith("approve_topup_") && isAdmin(userId)) {
     const topupId = data.replace("approve_topup_", "");
     const db = loadDB();
     const topup = db.topups.find((t) => t.id === topupId);
-
     if (!topup) return bot.sendMessage(chatId, "❌ To'lov topilmadi.");
     if (topup.status !== "pending")
       return bot.sendMessage(
@@ -1945,7 +1930,6 @@ bot.on("callback_query", async (query) => {
     const topupId = data.replace("reject_topup_", "");
     const db = loadDB();
     const topup = db.topups.find((t) => t.id === topupId);
-
     if (!topup) return bot.sendMessage(chatId, "❌ To'lov topilmadi.");
     if (topup.status !== "pending")
       return bot.sendMessage(
@@ -1964,12 +1948,16 @@ bot.on("callback_query", async (query) => {
     await bot
       .sendMessage(
         topup.userId,
-        `❌ *To'lovingiz rad etildi.*\n\n💰 Miqdor: ${formatUZS(topup.amount)}\n\nChek noto'g'ri yoki tasdiqlanmadi. Savol bo'lsa, admin bilan bog'laning.`,
+        `❌ *To'lovingiz rad etildi.*\n\n💰 Miqdor: ${formatUZS(topup.amount)}\n\nChek noto'g'ri yoki tasdiqlanmadi.`,
         { parse_mode: "Markdown" },
       )
       .catch(() => {});
     return;
   }
+
+  // ============================================================
+  // BOT MANAGEMENT — ✅ processName purchase dan olinadi
+  // ============================================================
 
   // ── Bot Stop ──
   if (data.startsWith("bot_stop_")) {
@@ -1980,18 +1968,17 @@ bot.on("callback_query", async (query) => {
     );
     if (!purchase) return bot.sendMessage(chatId, "❌ Bot topilmadi.");
 
-    const processName = `bot_${purchase.userId}`;
+    const processName =
+      purchase.processName || `bot_${purchase.userId}_${purchase.id}`;
     const stopped = stopPm2Process(processName);
 
-    if (stopped) {
-      await bot.sendMessage(
-        chatId,
-        `🛑 *Bot to'xtatildi*\n\n🔧 Process: \`${processName}\``,
-        { parse_mode: "Markdown" },
-      );
-    } else {
-      await bot.sendMessage(chatId, "❌ Botni to'xtatishda xatolik.");
-    }
+    await bot.sendMessage(
+      chatId,
+      stopped
+        ? `🛑 *Bot to'xtatildi*\n\n🔧 Process: \`${processName}\``
+        : "❌ Botni to'xtatishda xatolik.",
+      { parse_mode: "Markdown" },
+    );
     return showMyBots(chatId, userId);
   }
 
@@ -2004,18 +1991,17 @@ bot.on("callback_query", async (query) => {
     );
     if (!purchase) return bot.sendMessage(chatId, "❌ Bot topilmadi.");
 
-    const processName = `bot_${purchase.userId}`;
+    const processName =
+      purchase.processName || `bot_${purchase.userId}_${purchase.id}`;
     const restarted = restartPm2Process(processName);
 
-    if (restarted) {
-      await bot.sendMessage(
-        chatId,
-        `🔄 *Bot qayta ishga tushirildi*\n\n🔧 Process: \`${processName}\``,
-        { parse_mode: "Markdown" },
-      );
-    } else {
-      await bot.sendMessage(chatId, "❌ Botni restart qilishda xatolik.");
-    }
+    await bot.sendMessage(
+      chatId,
+      restarted
+        ? `🔄 *Bot qayta ishga tushirildi*\n\n🔧 Process: \`${processName}\``
+        : "❌ Botni restart qilishda xatolik.",
+      { parse_mode: "Markdown" },
+    );
     return showMyBots(chatId, userId);
   }
 
@@ -2028,7 +2014,8 @@ bot.on("callback_query", async (query) => {
     );
     if (!purchase) return bot.sendMessage(chatId, "❌ Bot topilmadi.");
 
-    const processName = `bot_${purchase.userId}`;
+    const processName =
+      purchase.processName || `bot_${purchase.userId}_${purchase.id}`;
     const logs = getPm2Logs(processName);
 
     await bot.sendMessage(
@@ -2057,12 +2044,10 @@ bot.on("callback_query", async (query) => {
     const templateId = data.replace("buy_", "");
     const db = loadDB();
     const template = db.templates.find((t) => t.id === templateId);
-
     if (!template) return bot.sendMessage(chatId, "❌ Shablon topilmadi.");
 
     const priceUZS = template.priceUZS || template.price * 100;
 
-    // Admin — bepul deploy
     if (isAdmin(userId)) {
       const purchase = {
         id: `purchase_${Date.now()}`,
@@ -2071,8 +2056,11 @@ bot.on("callback_query", async (query) => {
         templateName: template.name,
         fileName: template.fileName,
         amount: 0,
+        method: "admin",
         date: new Date().toISOString(),
         deployed: false,
+        deployId: null,
+        processName: null,
       };
       db.purchases.push(purchase);
       saveDB(db);
@@ -2085,7 +2073,6 @@ bot.on("callback_query", async (query) => {
       return startPlaceholderCollection(chatId, userId, template, purchase.id);
     }
 
-    // User — to'lov usulini tanlash
     const balance = getBalance(userId);
     return bot.sendMessage(
       chatId,
@@ -2157,6 +2144,8 @@ bot.on("callback_query", async (query) => {
       method: "wallet",
       date: new Date().toISOString(),
       deployed: false,
+      deployId: null,
+      processName: null,
     };
     db.purchases.push(purchase);
     saveDB(db);
@@ -2202,11 +2191,6 @@ bot.on("callback_query", async (query) => {
     return;
   }
 
-  // ── Go to top-up ──
-  if (data === "go_topup") {
-    return showWalletTopupPrompt(chatId, userId);
-  }
-
   // ── Undeploy ──
   if (data.startsWith("undeploy_")) {
     const purchaseId = data.replace("undeploy_", "");
@@ -2247,8 +2231,12 @@ bot.on("callback_query", async (query) => {
 
     try {
       await bot.sendMessage(chatId, "🛑 Bot to'xtatilmoqda...");
-      const result = await undeploy(purchase.userId);
+
+      // ✅ purchaseId bilan undeploy
+      const result = await undeploy(purchase.userId, purchase.id);
       purchase.deployed = false;
+      purchase.processName = null;
+      purchase.deployId = null;
       saveDB(db);
 
       await bot.sendMessage(
@@ -2305,6 +2293,8 @@ bot.on("message", async (msg) => {
     method: "stars",
     date: new Date().toISOString(),
     deployed: false,
+    deployId: null,
+    processName: null,
   };
   db.purchases.push(purchase);
   saveDB(db);
@@ -2327,9 +2317,15 @@ bot.on("message", async (msg) => {
 });
 
 // ============================================================
-// DEPLOY EXECUTION
+// DEPLOY EXECUTION — ✅ purchaseId bilan ishlaydi
 // ============================================================
-async function executeDeploy(chatId, userId, templateId, replacements) {
+async function executeDeploy(
+  chatId,
+  userId,
+  templateId,
+  purchaseId,
+  replacements,
+) {
   const db = loadDB();
   const template = db.templates.find((t) => t.id === templateId);
   if (!template) return bot.sendMessage(chatId, "❌ Shablon topilmadi.");
@@ -2343,17 +2339,17 @@ async function executeDeploy(chatId, userId, templateId, replacements) {
     { parse_mode: "Markdown" },
   );
 
-  try {
-    const updateStatus = async (text) => {
-      try {
-        await bot.editMessageText(text, {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-          parse_mode: "Markdown",
-        });
-      } catch {}
-    };
+  const updateStatus = async (text) => {
+    try {
+      await bot.editMessageText(text, {
+        chat_id: chatId,
+        message_id: statusMsg.message_id,
+        parse_mode: "Markdown",
+      });
+    } catch {}
+  };
 
+  try {
     await updateStatus(
       `⏳ *Bot deploy qilinmoqda...*\n\n` +
         `📦 Shablon: ${template.name}\n` +
@@ -2361,7 +2357,13 @@ async function executeDeploy(chatId, userId, templateId, replacements) {
         `${"▓".repeat(8)}${"░".repeat(12)} 40%`,
     );
 
-    const result = await deploy(template.fileName, userId, replacements);
+    // ✅ purchaseId ni deploy ga uzatamiz
+    const result = await deploy(
+      template.fileName,
+      userId,
+      purchaseId,
+      replacements,
+    );
 
     await updateStatus(
       `⏳ *Bot deploy qilinmoqda...*\n\n` +
@@ -2370,12 +2372,12 @@ async function executeDeploy(chatId, userId, templateId, replacements) {
         `${"▓".repeat(16)}${"░".repeat(4)} 80%`,
     );
 
-    const purchase = db.purchases.find(
-      (p) => p.userId === userId && p.templateId === templateId && !p.deployed,
-    );
+    // ✅ Purchase ga processName va deployId saqlaymiz
+    const purchase = db.purchases.find((p) => p.id === purchaseId);
     if (purchase) {
       purchase.deployed = true;
       purchase.processName = result.processName;
+      purchase.deployId = result.processName;
       purchase.deployDir = result.deployDir;
       saveDB(db);
     }
@@ -2397,7 +2399,7 @@ async function executeDeploy(chatId, userId, templateId, replacements) {
         `${"━".repeat(28)}\n\n` +
         `📦 Shablon: ${template.name}\n` +
         `🔧 Process: \`${result.processName}\`\n` +
-        `📁 Papka: \`deployments/${userId}/\`\n` +
+        `📁 Papka: \`deployments/${userId}_${purchaseId}/\`\n` +
         `📄 Main: \`${result.mainFile}\`\n` +
         `🟢 Status: *Running*\n\n` +
         `${"━".repeat(28)}\n\n` +
@@ -2416,17 +2418,12 @@ async function executeDeploy(chatId, userId, templateId, replacements) {
   } catch (err) {
     console.error("Deploy error:", err);
     try {
-      await bot.editMessageText(
+      await updateStatus(
         `❌ *Deploy xatoligi!*\n\n` +
           `👤 User: \`${userId}\`\n` +
           `📦 Shablon: ${template.name}\n` +
-          `🔴 Xatolik: \`${err.message}\`\n\n` +
+          `🔴 Xatolik: \`${err.message.slice(0, 300)}\`\n\n` +
           `Adminga murojaat qiling.`,
-        {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-          parse_mode: "Markdown",
-        },
       );
     } catch {
       bot.sendMessage(chatId, `❌ Deploy xatoligi: ${err.message}`);
@@ -2435,7 +2432,7 @@ async function executeDeploy(chatId, userId, templateId, replacements) {
     bot
       .sendMessage(
         ADMIN_ID,
-        `❌ *Deploy xatoligi!*\n\n👤 User: \`${userId}\`\n📦 Shablon: ${template.name}\n🔴 Xatolik: \`${err.message}\``,
+        `❌ *Deploy xatoligi!*\n\n👤 User: \`${userId}\`\n📦 Shablon: ${template.name}\n🔴 Xatolik: \`${err.message.slice(0, 300)}\``,
         { parse_mode: "Markdown" },
       )
       .catch(() => {});
