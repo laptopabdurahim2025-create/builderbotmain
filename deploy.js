@@ -1,246 +1,323 @@
-const fs = require('fs-extra');
-const path = require('path');
-const AdmZip = require('adm-zip');
-const { execSync } = require('child_process');
+const fs = require("fs-extra");
+const path = require("path");
+const AdmZip = require("adm-zip");
+const { execSync } = require("child_process");
 
-const DEPLOYMENTS_DIR = path.join(__dirname, 'deployments');
-const TEMPLATES_DIR = path.join(__dirname, 'templates');
+const DEPLOYMENTS_DIR = path.join(__dirname, "deployments");
+const TEMPLATES_DIR = path.join(__dirname, "templates");
 
 const BINARY_EXTENSIONS = new Set([
-    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg',
-    '.mp3', '.mp4', '.avi', '.mov', '.wav', '.ogg', '.webm',
-    '.zip', '.tar', '.gz', '.rar', '.7z',
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx',
-    '.exe', '.dll', '.so', '.dylib',
-    '.ttf', '.otf', '.woff', '.woff2', '.eot',
-    '.node', '.lock'
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".bmp",
+  ".ico",
+  ".svg",
+  ".mp3",
+  ".mp4",
+  ".avi",
+  ".mov",
+  ".wav",
+  ".ogg",
+  ".webm",
+  ".zip",
+  ".tar",
+  ".gz",
+  ".rar",
+  ".7z",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".exe",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".ttf",
+  ".otf",
+  ".woff",
+  ".woff2",
+  ".eot",
+  ".node",
+  ".lock",
 ]);
 
 function isTextFile(filePath) {
-    const ext = path.extname(filePath).toLowerCase();
-    if (BINARY_EXTENSIONS.has(ext)) return false;
-    if (filePath.includes('node_modules')) return false;
-    try {
-        const buffer = fs.readFileSync(filePath);
-        const sample = buffer.slice(0, 8192);
-        for (let i = 0; i < sample.length; i++) {
-            if (sample[i] === 0) return false;
-        }
-        return true;
-    } catch { return false; }
+  const ext = path.extname(filePath).toLowerCase();
+  if (BINARY_EXTENSIONS.has(ext)) return false;
+  if (filePath.includes("node_modules")) return false;
+  try {
+    const buffer = fs.readFileSync(filePath);
+    const sample = buffer.slice(0, 8192);
+    for (let i = 0; i < sample.length; i++) {
+      if (sample[i] === 0) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function getAllFiles(dirPath, filesList = []) {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
-        if (entry.isDirectory()) {
-            if (entry.name === 'node_modules') continue;
-            getAllFiles(fullPath, filesList);
-        } else {
-            filesList.push(fullPath);
-        }
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules") continue;
+      getAllFiles(fullPath, filesList);
+    } else {
+      filesList.push(fullPath);
     }
-    return filesList;
+  }
+  return filesList;
 }
 
 function replacePlaceholders(deployDir, replacements) {
-    console.log(`🔍 Scanning files in: ${deployDir}`);
-    const files = getAllFiles(deployDir);
-    let replacedCount = 0;
+  console.log(`🔍 Scanning files in: ${deployDir}`);
+  const files = getAllFiles(deployDir);
+  let replacedCount = 0;
 
-    for (const filePath of files) {
-        if (!isTextFile(filePath)) continue;
-        try {
-            let content = fs.readFileSync(filePath, 'utf8');
-            let changed = false;
+  for (const filePath of files) {
+    if (!isTextFile(filePath)) continue;
+    try {
+      let content = fs.readFileSync(filePath, "utf8");
+      let changed = false;
 
-            for (const [placeholder, value] of Object.entries(replacements)) {
-                if (content.includes(placeholder)) {
-                    console.log(`  📝 Replacing "${placeholder}" in: ${path.relative(deployDir, filePath)}`);
-                    content = content.split(placeholder).join(value);
-                    changed = true;
-                }
-            }
-
-            if (changed) {
-                fs.writeFileSync(filePath, content, 'utf8');
-                replacedCount++;
-            }
-        } catch (err) {
-            console.warn(`  ⚠️ Could not process: ${filePath} — ${err.message}`);
+      for (const [placeholder, value] of Object.entries(replacements)) {
+        if (content.includes(placeholder)) {
+          console.log(
+            `  📝 Replacing "${placeholder}" in: ${path.relative(deployDir, filePath)}`,
+          );
+          content = content.split(placeholder).join(value);
+          changed = true;
         }
-    }
+      }
 
-    console.log(`✅ Replaced placeholders in ${replacedCount} file(s)`);
-    return replacedCount;
+      if (changed) {
+        fs.writeFileSync(filePath, content, "utf8");
+        replacedCount++;
+      }
+    } catch (err) {
+      console.warn(`  ⚠️ Could not process: ${filePath} — ${err.message}`);
+    }
+  }
+
+  console.log(`✅ Replaced placeholders in ${replacedCount} file(s)`);
+  return replacedCount;
 }
 
 function detectMainFile(deployDir) {
-    const pkgPath = path.join(deployDir, 'package.json');
-    if (fs.existsSync(pkgPath)) {
-        try {
-            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-            if (pkg.main && fs.existsSync(path.join(deployDir, pkg.main))) return pkg.main;
-        } catch {}
-    }
+  const pkgPath = path.join(deployDir, "package.json");
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+      if (pkg.main && fs.existsSync(path.join(deployDir, pkg.main)))
+        return pkg.main;
+    } catch {}
+  }
 
-    const fallbacks = ['index.js', 'bot.js', 'app.js', 'server.js', 'main.js'];
-    for (const f of fallbacks) {
-        if (fs.existsSync(path.join(deployDir, f))) return f;
-    }
+  const fallbacks = ["index.js", "bot.js", "app.js", "server.js", "main.js"];
+  for (const f of fallbacks) {
+    if (fs.existsSync(path.join(deployDir, f))) return f;
+  }
 
-    return 'index.js';
+  return "index.js";
 }
 
 function scanTemplatePlaceholders(templateFileName) {
-    const zipPath = path.join(TEMPLATES_DIR, templateFileName);
-    if (!fs.existsSync(zipPath)) return [];
+  const zipPath = path.join(TEMPLATES_DIR, templateFileName);
+  if (!fs.existsSync(zipPath)) return [];
 
-    const KNOWN_PLACEHOLDERS = [
-        'YOUR_BOT_TOKEN_HERE', 'YOUR_TELEGRAM_ID', 'YOUR_ADMIN_ID',
-        'YOUR_API_KEY', 'YOUR_DATABASE_URL', 'YOUR_WEBHOOK_URL',
-        'YOUR_CHANNEL_ID', 'YOUR_GROUP_ID', 'YOUR_PAYMENT_TOKEN'
-    ];
+  const KNOWN_PLACEHOLDERS = [
+    "YOUR_BOT_TOKEN_HERE",
+    "YOUR_TELEGRAM_ID",
+    "YOUR_ADMIN_ID",
+    "YOUR_API_KEY",
+    "YOUR_DATABASE_URL",
+    "YOUR_WEBHOOK_URL",
+    "YOUR_CHANNEL_ID",
+    "YOUR_GROUP_ID",
+    "YOUR_PAYMENT_TOKEN",
+  ];
 
-    const found = new Set();
+  const found = new Set();
 
-    try {
-        const zip = new AdmZip(zipPath);
-        const entries = zip.getEntries();
+  try {
+    const zip = new AdmZip(zipPath);
+    const entries = zip.getEntries();
 
-        for (const entry of entries) {
-            if (entry.isDirectory) continue;
-            const ext = path.extname(entry.entryName).toLowerCase();
-            if (BINARY_EXTENSIONS.has(ext)) continue;
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      const ext = path.extname(entry.entryName).toLowerCase();
+      if (BINARY_EXTENSIONS.has(ext)) continue;
 
-            try {
-                const content = entry.getData().toString('utf8');
-                for (const ph of KNOWN_PLACEHOLDERS) {
-                    if (content.includes(ph)) found.add(ph);
-                }
-            } catch {}
+      try {
+        const content = entry.getData().toString("utf8");
+        for (const ph of KNOWN_PLACEHOLDERS) {
+          if (content.includes(ph)) found.add(ph);
         }
-    } catch (err) {
-        console.error(`Error scanning template: ${err.message}`);
+      } catch {}
     }
+  } catch (err) {
+    console.error(`Error scanning template: ${err.message}`);
+  }
 
-    return Array.from(found);
+  return Array.from(found);
 }
 
 async function deploy(templateFileName, userId, replacements = {}) {
-    const zipPath = path.join(TEMPLATES_DIR, templateFileName);
-    const deployDir = path.join(DEPLOYMENTS_DIR, String(userId));
-    const processName = `bot_${userId}`;
+  const zipPath = path.join(TEMPLATES_DIR, templateFileName);
+  const deployDir = path.join(DEPLOYMENTS_DIR, String(userId));
+  const processName = `bot_${userId}`;
 
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`🚀 DEPLOYING for user ${userId}`);
-    console.log(`Template: ${templateFileName}`);
-    console.log(`${'='.repeat(60)}`);
+  console.log(`\n${"=".repeat(60)}`);
+  console.log(`🚀 DEPLOYING for user ${userId}`);
+  console.log(`Template: ${templateFileName}`);
+  console.log(`${"=".repeat(60)}`);
 
-    // Stop existing
-    try { execSync(`pm2 delete ${processName}`, { stdio: 'ignore' }); console.log(`🛑 Stopped: ${processName}`); } catch {}
+  // Stop existing
+  try {
+    execSync(`pm2 delete ${processName}`, { stdio: "ignore" });
+    console.log(`🛑 Stopped: ${processName}`);
+  } catch {}
 
-    // Validate ZIP
-    if (!fs.existsSync(zipPath)) throw new Error(`Template not found: ${templateFileName}`);
+  // Validate ZIP
+  if (!fs.existsSync(zipPath))
+    throw new Error(`Template not found: ${templateFileName}`);
 
-    // Clean deploy folder
-    if (fs.existsSync(deployDir)) {
-        console.log('🗑️ Removing old deployment...');
-        fs.removeSync(deployDir);
+  // Clean deploy folder
+  if (fs.existsSync(deployDir)) {
+    console.log("🗑️ Removing old deployment...");
+    fs.removeSync(deployDir);
+  }
+  fs.ensureDirSync(deployDir);
+  console.log(`📁 Created: ${deployDir}`);
+
+  // Extract
+  try {
+    console.log("📦 Extracting ZIP...");
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(deployDir, true);
+
+    // Unwrap nested root folders (handles same-name nesting like folder/folder/folder/...)
+    let unwrapCount = 0;
+    const MAX_UNWRAP = 10;
+    while (unwrapCount < MAX_UNWRAP) {
+      const items = fs
+        .readdirSync(deployDir)
+        .filter((i) => i !== ".DS_Store" && i !== "__MACOSX");
+      if (items.length !== 1) break;
+
+      const singleItem = path.join(deployDir, items[0]);
+      if (!fs.statSync(singleItem).isDirectory()) break;
+
+      console.log(
+        `📂 Unwrapping root folder: ${items[0]} (level ${unwrapCount + 1})`,
+      );
+
+      // Use temp directory to avoid rename conflicts when inner folder has same name
+      const tempDir = path.join(deployDir, `__unwrap_temp_${Date.now()}`);
+      fs.moveSync(singleItem, tempDir, { overwrite: true });
+
+      const innerItems = fs.readdirSync(tempDir);
+      for (const item of innerItems) {
+        fs.moveSync(path.join(tempDir, item), path.join(deployDir, item), {
+          overwrite: true,
+        });
+      }
+      fs.removeSync(tempDir);
+      unwrapCount++;
     }
-    fs.ensureDirSync(deployDir);
-    console.log(`📁 Created: ${deployDir}`);
 
-    // Extract
+    if (unwrapCount > 0) {
+      console.log(`✅ Unwrapped ${unwrapCount} level(s) of nesting`);
+    }
+
+    console.log("✅ Extraction complete");
+  } catch (err) {
+    throw new Error(`Failed to extract ZIP: ${err.message}`);
+  }
+
+  // Replace placeholders
+  console.log("🔄 Replacing placeholders...");
+  replacePlaceholders(deployDir, replacements);
+
+  // 🛠️ FIX: Delete existing node_modules to prevent architecture mismatch (e.g. Windows .node files on Linux)
+  const nodeModulesPath = path.join(deployDir, "node_modules");
+  if (fs.existsSync(nodeModulesPath)) {
+    console.log(
+      "🗑️ Removing existing node_modules to prevent architecture mismatch...",
+    );
+    fs.removeSync(nodeModulesPath);
+  }
+
+  // npm install
+  const pkgPath = path.join(deployDir, "package.json");
+  if (fs.existsSync(pkgPath)) {
     try {
-        console.log('📦 Extracting ZIP...');
-        const zip = new AdmZip(zipPath);
-        zip.extractAllTo(deployDir, true);
-
-        // Unwrap nested root folders (handles same-name nesting like folder/folder/folder/...)
-        let unwrapCount = 0;
-        const MAX_UNWRAP = 10;
-        while (unwrapCount < MAX_UNWRAP) {
-            const items = fs.readdirSync(deployDir).filter(i => i !== '.DS_Store' && i !== '__MACOSX');
-            if (items.length !== 1) break;
-
-            const singleItem = path.join(deployDir, items[0]);
-            if (!fs.statSync(singleItem).isDirectory()) break;
-
-            console.log(`📂 Unwrapping root folder: ${items[0]} (level ${unwrapCount + 1})`);
-
-            // Use temp directory to avoid rename conflicts when inner folder has same name
-            const tempDir = path.join(deployDir, `__unwrap_temp_${Date.now()}`);
-            fs.moveSync(singleItem, tempDir, { overwrite: true });
-
-            const innerItems = fs.readdirSync(tempDir);
-            for (const item of innerItems) {
-                fs.moveSync(path.join(tempDir, item), path.join(deployDir, item), { overwrite: true });
-            }
-            fs.removeSync(tempDir);
-            unwrapCount++;
-        }
-
-        if (unwrapCount > 0) {
-            console.log(`✅ Unwrapped ${unwrapCount} level(s) of nesting`);
-        }
-
-        console.log('✅ Extraction complete');
+      console.log("📥 Running npm install...");
+      execSync("npm install --production", {
+        cwd: deployDir,
+        stdio: "pipe",
+        timeout: 120000,
+      });
+      console.log("✅ npm install complete");
     } catch (err) {
-        throw new Error(`Failed to extract ZIP: ${err.message}`);
+      const stderr =
+        err.stderr && err.stderr.toString().trim()
+          ? err.stderr.toString().slice(0, 500)
+          : err.message;
+      throw new Error(`npm install failed:\n${stderr}`);
     }
+  } else {
+    console.log("⚠️ No package.json — skipping npm install");
+  }
 
-    // Replace placeholders
-    console.log('🔄 Replacing placeholders...');
-    replacePlaceholders(deployDir, replacements);
-
-    // 🛠️ FIX: Delete existing node_modules to prevent architecture mismatch (e.g. Windows .node files on Linux)
-    const nodeModulesPath = path.join(deployDir, 'node_modules');
-    if (fs.existsSync(nodeModulesPath)) {
-        console.log('🗑️ Removing existing node_modules to prevent architecture mismatch...');
-        fs.removeSync(nodeModulesPath);
-    }
-
-    // npm install
-    const pkgPath = path.join(deployDir, 'package.json');
-    if (fs.existsSync(pkgPath)) {
-        try {
-            console.log('📥 Running npm install...');
-            execSync('npm install --production', { cwd: deployDir, stdio: 'pipe', timeout: 120000 });
-            console.log('✅ npm install complete');
-        } catch (err) {
-            const stderr = (err.stderr && err.stderr.toString().trim()) ? err.stderr.toString().slice(0, 500) : err.message;
-            throw new Error(`npm install failed:\n${stderr}`);
-        }
-    } else {
-        console.log('⚠️ No package.json — skipping npm install');
-    }
-
-    // PM2 start
-    const mainFile = detectMainFile(deployDir);
+  // PM2 start
+  const mainFile = detectMainFile(deployDir);
+  try {
+    console.log(`🟢 Starting PM2: ${processName} → ${mainFile}`);
+    execSync(`pm2 start ${mainFile} --name ${processName}`, {
+      cwd: deployDir,
+      stdio: "pipe",
+      timeout: 45000,
+    });
     try {
-        console.log(`🟢 Starting PM2: ${processName} → ${mainFile}`);
-        execSync(`pm2 start ${mainFile} --name ${processName}`, { cwd: deployDir, stdio: 'pipe', timeout: 45000 });
-        try { execSync('pm2 save', { stdio: 'ignore' }); } catch {}
-        console.log(`✅ Bot deployed as "${processName}"`);
-    } catch (err) {
-        const stderr = (err.stderr && err.stderr.toString().trim()) ? err.stderr.toString().slice(0, 500) : err.message;
-        throw new Error(`PM2 start failed:\n${stderr}`);
-    }
+      execSync("pm2 save", { stdio: "ignore" });
+    } catch {}
+    console.log(`✅ Bot deployed as "${processName}"`);
+  } catch (err) {
+    const stderr =
+      err.stderr && err.stderr.toString().trim()
+        ? err.stderr.toString().slice(0, 500)
+        : err.message;
+    throw new Error(`PM2 start failed:\n${stderr}`);
+  }
 
-    return { success: true, processName, deployDir, mainFile, userId };
+  return { success: true, processName, deployDir, mainFile, userId };
 }
 
 async function undeploy(userId) {
-    const processName = `bot_${userId}`;
-    const deployDir = path.join(DEPLOYMENTS_DIR, String(userId));
+  const processName = `bot_${userId}`;
+  const deployDir = path.join(DEPLOYMENTS_DIR, String(userId));
 
-    try { execSync(`pm2 delete ${processName}`, { stdio: 'ignore' }); } catch {}
-    if (fs.existsSync(deployDir)) fs.removeSync(deployDir);
-    try { execSync('pm2 save', { stdio: 'ignore' }); } catch {}
+  try {
+    execSync(`pm2 delete ${processName}`, { stdio: "ignore" });
+  } catch {}
+  if (fs.existsSync(deployDir)) fs.removeSync(deployDir);
+  try {
+    execSync("pm2 save", { stdio: "ignore" });
+  } catch {}
 
-    return { success: true, processName };
+  return { success: true, processName };
 }
 
-module.exports = { deploy, undeploy, scanTemplatePlaceholders, TEMPLATES_DIR, DEPLOYMENTS_DIR };
+module.exports = {
+  deploy,
+  undeploy,
+  scanTemplatePlaceholders,
+  TEMPLATES_DIR,
+  DEPLOYMENTS_DIR,
+};
