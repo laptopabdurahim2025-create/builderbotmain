@@ -201,7 +201,6 @@ async function deploy(templateFileName, userId, replacements = {}) {
     const zip = new AdmZip(zipPath);
     zip.extractAllTo(deployDir, true);
 
-    // Unwrap nested root folders (handles same-name nesting like folder/folder/folder/...)
     let unwrapCount = 0;
     const MAX_UNWRAP = 10;
     while (unwrapCount < MAX_UNWRAP) {
@@ -217,7 +216,6 @@ async function deploy(templateFileName, userId, replacements = {}) {
         `📂 Unwrapping root folder: ${items[0]} (level ${unwrapCount + 1})`,
       );
 
-      // Use temp directory to avoid rename conflicts when inner folder has same name
       const tempDir = path.join(deployDir, `__unwrap_temp_${Date.now()}`);
       fs.moveSync(singleItem, tempDir, { overwrite: true });
 
@@ -244,12 +242,10 @@ async function deploy(templateFileName, userId, replacements = {}) {
   console.log("🔄 Replacing placeholders...");
   replacePlaceholders(deployDir, replacements);
 
-  // 🛠️ FIX: Delete existing node_modules to prevent architecture mismatch (e.g. Windows .node files on Linux)
+  // Delete existing node_modules
   const nodeModulesPath = path.join(deployDir, "node_modules");
   if (fs.existsSync(nodeModulesPath)) {
-    console.log(
-      "🗑️ Removing existing node_modules to prevent architecture mismatch...",
-    );
+    console.log("🗑️ Removing existing node_modules...");
     fs.removeSync(nodeModulesPath);
   }
 

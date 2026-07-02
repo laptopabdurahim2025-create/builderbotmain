@@ -17,13 +17,12 @@ const {
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 
-// Wallet / earnings configuration
 const CARD_NUMBER = "8600 0609 9034 6414";
-const MIN_TOPUP = 1000; // UZS
-const MAX_TOPUP = 500000; // UZS
-const TOPUP_TIMEOUT_MS = 5 * 60 * 1000; // 5 daqiqa
-const REFERRAL_BONUS = 1000; // UZS — har bir referal uchun
-const DAILY_BONUS = 700; // UZS — kunlik bonus
+const MIN_TOPUP = 1000;
+const MAX_TOPUP = 500000;
+const TOPUP_TIMEOUT_MS = 5 * 60 * 1000;
+const REFERRAL_BONUS = 1000;
+const DAILY_BONUS = 700;
 const DAILY_BONUS_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // ============================================================
@@ -34,14 +33,13 @@ const DB_PATH = path.join(__dirname, "database.json");
 function loadDB() {
   try {
     const data = JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
-    // Ensure all needed fields exist
     if (!data.users) data.users = [];
     if (!data.templates) data.templates = [];
     if (!data.purchases) data.purchases = [];
     if (!data.pending) data.pending = {};
     if (!data.promoCodes) data.promoCodes = [];
     if (!data.topups) data.topups = [];
-    // Backfill wallet-related fields on existing users
+
     for (const u of data.users) {
       if (typeof u.balance !== "number") u.balance = 0;
       if (u.referredBy === undefined) u.referredBy = null;
@@ -50,6 +48,12 @@ function loadDB() {
       if (typeof u.referralCount !== "number") u.referralCount = 0;
       if (typeof u.referralEarnings !== "number") u.referralEarnings = 0;
     }
+
+    // Templates uchun priceUZS backfill
+    for (const t of data.templates) {
+      if (typeof t.priceUZS !== "number") t.priceUZS = t.price * 100;
+    }
+
     return data;
   } catch {
     const fresh = {
@@ -69,7 +73,6 @@ function saveDB(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-// Tracks a user; returns { isNew, user }
 function trackUser(userId, firstName, username) {
   const db = loadDB();
   if (!db.users) db.users = [];
@@ -378,7 +381,6 @@ function formatUptime(uptimeMs) {
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-
   if (days > 0) return `${days} kun, ${hours % 24} soat`;
   if (hours > 0) return `${hours} soat, ${minutes % 60} daqiqa`;
   if (minutes > 0) return `${minutes} daqiqa`;
@@ -393,7 +395,7 @@ function formatBytes(bytes) {
 }
 
 // ============================================================
-// Placeholder collection start helper
+// PLACEHOLDER COLLECTION
 // ============================================================
 async function startPlaceholderCollection(
   chatId,
@@ -414,7 +416,6 @@ async function startPlaceholderCollection(
   }
 
   const uniquePlaceholders = [...new Set(placeholders)];
-
   const firstPh = uniquePlaceholders[0];
   const firstInfo = PLACEHOLDER_INFO[firstPh];
   const prompt = (
@@ -454,7 +455,6 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
   clearState(userId);
   const { isNew } = trackUser(userId, msg.from.first_name, msg.from.username);
 
-  // Handle referral payload: /start ref_<referrerId>
   const payload = match && match[1] ? match[1].trim() : "";
   if (isNew && payload.startsWith("ref_")) {
     const referrerId = Number(payload.replace("ref_", ""));
@@ -472,7 +472,6 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
             ((referrer.referralEarnings || 0) + REFERRAL_BONUS) * 100,
           ) / 100;
         saveDB(db);
-
         bot
           .sendMessage(
             referrerId,
@@ -544,15 +543,18 @@ async function showCatalog(chatId, userId) {
         ? placeholders.map((p) => PLACEHOLDER_INFO[p]?.label || p).join(", ")
         : "Faqat token";
 
+    const priceUZS = tmpl.priceUZS || tmpl.price * 100;
+
     const text =
       `📦 *${tmpl.name}*\n\n` +
-      `⭐ Narxi: *${tmpl.price} Stars*\n` +
+      `⭐ Stars narxi: *${tmpl.price} Stars*\n` +
+      `💰 UZS narxi: *${formatUZS(priceUZS)}*\n` +
       `📋 Kerakli: ${phList}\n` +
       `🆔 ID: \`${tmpl.id}\``;
 
     const buttonText = isAdmin(userId)
       ? `👑 Bepul deploy — ${tmpl.name}`
-      : `⭐ Sotib olish — ${tmpl.price} Stars`;
+      : `🛒 Sotib olish — ${tmpl.name}`;
 
     await bot.sendMessage(chatId, text, {
       parse_mode: "Markdown",
@@ -632,14 +634,8 @@ async function showMyBots(chatId, userId) {
     const buttons = [];
     if (pm2Info && pm2Info.status === "online") {
       buttons.push([
-        {
-          text: "🛑 To'xtatish",
-          callback_data: `bot_stop_${purchase.id}`,
-        },
-        {
-          text: "🔄 Restart",
-          callback_data: `bot_restart_${purchase.id}`,
-        },
+        { text: "🛑 To'xtatish", callback_data: `bot_stop_${purchase.id}` },
+        { text: "🔄 Restart", callback_data: `bot_restart_${purchase.id}` },
       ]);
     } else if (pm2Info && pm2Info.status === "stopped") {
       buttons.push([
@@ -651,14 +647,8 @@ async function showMyBots(chatId, userId) {
     }
 
     buttons.push([
-      {
-        text: "📋 Loglar",
-        callback_data: `bot_logs_${purchase.id}`,
-      },
-      {
-        text: "🗑️ O'chirish",
-        callback_data: `undeploy_${purchase.id}`,
-      },
+      { text: "📋 Loglar", callback_data: `bot_logs_${purchase.id}` },
+      { text: "🗑️ O'chirish", callback_data: `undeploy_${purchase.id}` },
     ]);
 
     buttons.push([
@@ -693,7 +683,8 @@ async function showStatistics(chatId, userId) {
   if (totalTemplates > 0) {
     text += `📋 *Mavjud shablonlar:*\n`;
     for (const t of db.templates) {
-      text += `  • ${t.name} — ⭐ ${t.price} Stars\n`;
+      const priceUZS = t.priceUZS || t.price * 100;
+      text += `  • ${t.name} — ⭐ ${t.price} Stars / 💰 ${formatUZS(priceUZS)}\n`;
     }
   }
 
@@ -739,7 +730,7 @@ async function sendHelpMessage(chatId, userId) {
 }
 
 // ============================================================
-// EARN MONEY MENU
+// EARN MONEY
 // ============================================================
 async function showEarnMoney(chatId, userId) {
   const balance = getBalance(userId);
@@ -849,7 +840,7 @@ async function showReferralInfo(chatId, userId) {
   const user = getUser(userId);
   const link = username
     ? `https://t.me/${username}?start=ref_${userId}`
-    : `Bot username aniqlanmadi, /myid orqali ID: ${userId}`;
+    : `Bot username aniqlanmadi, ID: ${userId}`;
 
   await bot.sendMessage(
     chatId,
@@ -964,10 +955,7 @@ async function handleTopupScreenshot(msg, state) {
               text: "✅ Tasdiqlash",
               callback_data: `approve_topup_${topup.id}`,
             },
-            {
-              text: "❌ Rad etish",
-              callback_data: `reject_topup_${topup.id}`,
-            },
+            { text: "❌ Rad etish", callback_data: `reject_topup_${topup.id}` },
           ],
         ],
       },
@@ -1041,7 +1029,6 @@ async function showAdminStats(chatId) {
     0,
   );
 
-  // Recent purchases (last 5)
   const recentPurchases = db.purchases.slice(-5).reverse();
   let recentText = "";
   for (const p of recentPurchases) {
@@ -1050,7 +1037,6 @@ async function showAdminStats(chatId) {
     recentText += `  ${status} ${p.templateName} — User \`${p.userId}\` — ${date}\n`;
   }
 
-  // PM2 processes
   let pm2Count = 0;
   try {
     const output = execSync("pm2 jlist", {
@@ -1081,7 +1067,7 @@ async function showAdminStats(chatId) {
 }
 
 // ============================================================
-// ADMIN USERS LIST
+// ADMIN USERS
 // ============================================================
 async function showAdminUsers(chatId) {
   const db = loadDB();
@@ -1096,8 +1082,6 @@ async function showAdminUsers(chatId) {
   }
 
   let text = `👥 *Foydalanuvchilar — ${users.length} ta*\n\n${"━".repeat(30)}\n\n`;
-
-  // Show last 20 users
   const showUsers = users.slice(-20).reverse();
   for (let i = 0; i < showUsers.length; i++) {
     const u = showUsers[i];
@@ -1105,7 +1089,6 @@ async function showAdminUsers(chatId) {
     const deployed = purchases.filter((p) => p.deployed).length;
     const username = u.username ? `@${u.username}` : "—";
     const lastSeen = new Date(u.lastSeen).toLocaleDateString("uz-UZ");
-
     text +=
       `${i + 1}. *${u.firstName}* ${username}\n` +
       `   🆔 \`${u.id}\` | 🛒 ${purchases.length} xarid | 🚀 ${deployed} deploy\n` +
@@ -1138,7 +1121,6 @@ async function showAdminDeployments(chatId) {
   }
 
   let text = `🗂️ *Aktiv deploymentlar — ${activeDeploys.length} ta*\n\n${"━".repeat(30)}\n\n`;
-
   for (const p of activeDeploys) {
     const processName = `bot_${p.userId}`;
     const pm2Info = getPm2Status(processName);
@@ -1148,7 +1130,6 @@ async function showAdminDeployments(chatId) {
         : "🔴"
       : "⚪";
     const statusText = pm2Info ? pm2Info.status : "noma'lum";
-
     text +=
       `${statusEmoji} *${p.templateName}*\n` +
       `  👤 User: \`${p.userId}\`\n` +
@@ -1172,65 +1153,54 @@ bot.on("message", async (msg) => {
 
   if (text.startsWith("/")) return;
 
-  // Track user
   trackUser(userId, msg.from.first_name, msg.from.username);
 
-  // ── Menu buttons ──
   if (text === "🛒 Botlar katalogi") {
     clearState(userId);
     return showCatalog(chatId, userId);
   }
-
   if (text === "📦 Mening botlarim") {
     clearState(userId);
     return showMyBots(chatId, userId);
   }
-
   if (text === "💰 Pul ishlash") {
     clearState(userId);
     return showEarnMoney(chatId, userId);
   }
-
   if (text === "💳 Hamyonni to'ldirish") {
     clearState(userId);
     return showWalletTopupPrompt(chatId, userId);
   }
-
   if (text === "📊 Statistika") {
     clearState(userId);
     return showStatistics(chatId, userId);
   }
-
   if (text === "ℹ️ Yordam") {
     clearState(userId);
     return sendHelpMessage(chatId, userId);
   }
-
   if (text === "⚙️ Admin panel" && isAdmin(userId)) {
     clearState(userId);
     return bot.sendMessage(
       chatId,
       `⚙️ *Admin Panel*\n\n👋 Xush kelibsiz, admin!\nQuyidagi tugmalardan birini tanlang:`,
-      {
-        parse_mode: "Markdown",
-        ...getAdminKeyboard(),
-      },
+      { parse_mode: "Markdown", ...getAdminKeyboard() },
     );
   }
 
-  // ── State-based handlers ──
   const state = getState(userId);
   if (!state) return;
 
-  // Admin: template name
+  // ── Admin: template name ──
   if (state.step === "waiting_template_name" && isAdmin(userId)) {
     state.templateName = text;
     state.step = "waiting_template_price";
     setState(userId, state);
     return bot.sendMessage(
       chatId,
-      "⭐ Shablon narxini kiriting (Stars soni):",
+      "⭐ Shablon uchun *Stars* narxini kiriting (masalan: 50):",
       {
+        parse_mode: "Markdown",
         reply_markup: {
           inline_keyboard: [
             [{ text: "❌ Bekor qilish", callback_data: "admin_cancel" }],
@@ -1240,34 +1210,65 @@ bot.on("message", async (msg) => {
     );
   }
 
-  // Admin: template price
+  // ── Admin: template price Stars ──
   if (state.step === "waiting_template_price" && isAdmin(userId)) {
     const price = parseInt(text);
     if (isNaN(price) || price < 1) {
       return bot.sendMessage(
         chatId,
-        "❌ Narx musbat son bo'lishi kerak! Qaytadan:",
+        "❌ Stars narxi musbat son bo'lishi kerak! Qaytadan:",
       );
     }
     state.templatePrice = price;
-    state.step = "waiting_template_zip";
+    state.step = "waiting_template_price_uzs";
     setState(userId, state);
-    return bot.sendMessage(chatId, "📎 Endi ZIP faylni yuboring:", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "❌ Bekor qilish", callback_data: "admin_cancel" }],
-        ],
+    return bot.sendMessage(
+      chatId,
+      `⭐ Stars narxi: *${price} Stars* — saqlandi!\n\n💰 Endi *UZS* narxini kiriting (masalan: 15000):`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "❌ Bekor qilish", callback_data: "admin_cancel" }],
+          ],
+        },
       },
-    });
+    );
   }
 
-  // Admin: broadcast message
+  // ── Admin: template price UZS ──
+  if (state.step === "waiting_template_price_uzs" && isAdmin(userId)) {
+    const priceUZS = parseInt(text.replace(/\s/g, ""), 10);
+    if (isNaN(priceUZS) || priceUZS < 100) {
+      return bot.sendMessage(
+        chatId,
+        "❌ UZS narxi minimum 100 so'm bo'lishi kerak! Qaytadan:",
+      );
+    }
+    state.templatePriceUZS = priceUZS;
+    state.step = "waiting_template_zip";
+    setState(userId, state);
+    return bot.sendMessage(
+      chatId,
+      `✅ Narxlar saqlandi:\n\n⭐ Stars: *${state.templatePrice} Stars*\n💰 UZS: *${formatUZS(priceUZS)}*\n\n📎 Endi ZIP faylni yuboring:`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "❌ Bekor qilish", callback_data: "admin_cancel" }],
+          ],
+        },
+      },
+    );
+  }
+
+  // ── Admin: broadcast ──
   if (state.step === "waiting_broadcast_message" && isAdmin(userId)) {
     clearState(userId);
     return executeBroadcast(chatId, userId, text);
   }
 
-  // Admin: edit template name
+  // ── Admin: edit name ──
   if (state.step === "waiting_edit_name" && isAdmin(userId)) {
     const db = loadDB();
     const tmpl = db.templates.find((t) => t.id === state.templateId);
@@ -1285,24 +1286,51 @@ bot.on("message", async (msg) => {
     return bot.sendMessage(chatId, "❌ Shablon topilmadi.");
   }
 
-  // Admin: edit template price
+  // ── Admin: edit price Stars ──
   if (state.step === "waiting_edit_price" && isAdmin(userId)) {
     const price = parseInt(text);
     if (isNaN(price) || price < 1) {
       return bot.sendMessage(
         chatId,
-        "❌ Narx musbat son bo'lishi kerak! Qaytadan:",
+        "❌ Stars narxi musbat son bo'lishi kerak! Qaytadan:",
+      );
+    }
+    state.editPrice = price;
+    state.step = "waiting_edit_price_uzs";
+    setState(userId, state);
+    return bot.sendMessage(
+      chatId,
+      `⭐ Stars narxi: *${price} Stars* — saqlandi!\n\n💰 Endi yangi *UZS* narxini kiriting:`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "❌ Bekor qilish", callback_data: "admin_cancel" }],
+          ],
+        },
+      },
+    );
+  }
+
+  // ── Admin: edit price UZS ──
+  if (state.step === "waiting_edit_price_uzs" && isAdmin(userId)) {
+    const priceUZS = parseInt(text.replace(/\s/g, ""), 10);
+    if (isNaN(priceUZS) || priceUZS < 100) {
+      return bot.sendMessage(
+        chatId,
+        "❌ UZS narxi minimum 100 so'm bo'lishi kerak! Qaytadan:",
       );
     }
     const db = loadDB();
     const tmpl = db.templates.find((t) => t.id === state.templateId);
     if (tmpl) {
-      tmpl.price = price;
+      tmpl.price = state.editPrice;
+      tmpl.priceUZS = priceUZS;
       saveDB(db);
       clearState(userId);
       return bot.sendMessage(
         chatId,
-        `✅ Shablon narxi o'zgartirildi: *${price} Stars*`,
+        `✅ Narxlar o'zgartirildi:\n\n⭐ Stars: *${state.editPrice} Stars*\n💰 UZS: *${formatUZS(priceUZS)}*`,
         { parse_mode: "Markdown", ...getBackToAdminInline() },
       );
     }
@@ -1310,18 +1338,18 @@ bot.on("message", async (msg) => {
     return bot.sendMessage(chatId, "❌ Shablon topilmadi.");
   }
 
-  // User: entering promo code
+  // ── User: promo code ──
   if (state.step === "waiting_promo_code") {
     clearState(userId);
     return redeemPromoCode(chatId, userId, text);
   }
 
-  // User: entering top-up amount
+  // ── User: top-up amount ──
   if (state.step === "waiting_topup_amount") {
     return handleTopupAmount(chatId, userId, text);
   }
 
-  // Admin: creating promo code — code
+  // ── Admin: promo code input ──
   if (state.step === "waiting_promo_code_input" && isAdmin(userId)) {
     const code = text.trim().toUpperCase();
     if (!/^[A-Z0-9_-]{3,20}$/.test(code)) {
@@ -1349,7 +1377,7 @@ bot.on("message", async (msg) => {
     });
   }
 
-  // Admin: creating promo code — amount
+  // ── Admin: promo amount ──
   if (state.step === "waiting_promo_amount" && isAdmin(userId)) {
     const amount = parseInt(text, 10);
     if (isNaN(amount) || amount < 1) {
@@ -1374,7 +1402,7 @@ bot.on("message", async (msg) => {
     );
   }
 
-  // Admin: creating promo code — max uses
+  // ── Admin: promo max uses ──
   if (state.step === "waiting_promo_maxuses" && isAdmin(userId)) {
     const maxUses = parseInt(text, 10);
     if (isNaN(maxUses) || maxUses < 0) {
@@ -1402,7 +1430,7 @@ bot.on("message", async (msg) => {
     );
   }
 
-  // User: collecting placeholders
+  // ── User: collecting placeholders ──
   if (state.step === "collecting_placeholders") {
     const currentPh = state.placeholders[state.currentIndex];
     const info = PLACEHOLDER_INFO[currentPh];
@@ -1481,6 +1509,7 @@ bot.on("message", async (msg) => {
       id: `tmpl_${Date.now()}`,
       name: state.templateName,
       price: state.templatePrice,
+      priceUZS: state.templatePriceUZS,
       fileName: fileName,
       originalName: doc.file_name,
       createdAt: new Date().toISOString(),
@@ -1502,7 +1531,8 @@ bot.on("message", async (msg) => {
       chatId,
       `✅ *Shablon qo'shildi!*\n\n` +
         `📦 Nomi: ${template.name}\n` +
-        `⭐ Narxi: ${template.price} Stars\n` +
+        `⭐ Stars narxi: ${template.price} Stars\n` +
+        `💰 UZS narxi: ${formatUZS(template.priceUZS)}\n` +
         `📎 Fayl: ${doc.file_name}\n` +
         `🆔 ID: \`${template.id}\`\n\n` +
         `📋 Topilgan placeholder'lar:\n${phList}`,
@@ -1521,10 +1551,8 @@ bot.on("message", async (msg) => {
 bot.on("message", async (msg) => {
   if (!msg.photo) return;
   const userId = msg.from.id;
-
   const state = getState(userId);
   if (!state || state.step !== "waiting_topup_screenshot") return;
-
   await handleTopupScreenshot(msg, state);
 });
 
@@ -1551,7 +1579,7 @@ async function executeBroadcast(chatId, adminId, message) {
   let failed = 0;
 
   for (const user of users) {
-    if (user.id === adminId) continue; // Don't send to admin
+    if (user.id === adminId) continue;
     try {
       await bot.sendMessage(user.id, `📢 *Yangilik!*\n\n${message}`, {
         parse_mode: "Markdown",
@@ -1560,8 +1588,6 @@ async function executeBroadcast(chatId, adminId, message) {
     } catch {
       failed++;
     }
-
-    // Rate limiting
     if ((sent + failed) % 25 === 0) {
       await new Promise((r) => setTimeout(r, 1000));
     }
@@ -1614,6 +1640,10 @@ bot.on("callback_query", async (query) => {
     return showCatalog(chatId, userId);
   }
 
+  if (data === "go_mybots") {
+    return showMyBots(chatId, userId);
+  }
+
   // ── Admin: Cancel ──
   if (data === "admin_cancel" && isAdmin(userId)) {
     clearState(userId);
@@ -1645,9 +1675,10 @@ bot.on("callback_query", async (query) => {
     let text = `📋 *Shablonlar ro'yxati — ${db.templates.length} ta*\n\n${"━".repeat(30)}\n\n`;
     for (const t of db.templates) {
       const placeholders = scanTemplatePlaceholders(t.fileName);
+      const priceUZS = t.priceUZS || t.price * 100;
       text +=
         `📦 *${t.name}*\n` +
-        `   ⭐ ${t.price} Stars | 🆔 \`${t.id}\`\n` +
+        `   ⭐ ${t.price} Stars | 💰 ${formatUZS(priceUZS)}\n` +
         `   📎 ${t.originalName}\n` +
         `   📋 Placeholders: ${placeholders.length}\n` +
         `   📅 ${new Date(t.createdAt).toLocaleDateString("uz-UZ")}\n\n`;
@@ -1658,7 +1689,7 @@ bot.on("callback_query", async (query) => {
     });
   }
 
-  // ── Admin: Delete template ──
+  // ── Admin: Delete ──
   if (data === "admin_delete" && isAdmin(userId)) {
     const db = loadDB();
     if (db.templates.length === 0) {
@@ -1691,7 +1722,6 @@ bot.on("callback_query", async (query) => {
     const template = db.templates[idx];
     const filePath = path.join(TEMPLATES_DIR, template.fileName);
     if (fs.existsSync(filePath)) fs.removeSync(filePath);
-
     db.templates.splice(idx, 1);
     saveDB(db);
 
@@ -1701,7 +1731,7 @@ bot.on("callback_query", async (query) => {
     });
   }
 
-  // ── Admin: Edit template (choose which one) ──
+  // ── Admin: Edit (choose template) ──
   if (data === "admin_edit" && isAdmin(userId)) {
     const db = loadDB();
     if (db.templates.length === 0) {
@@ -1731,9 +1761,10 @@ bot.on("callback_query", async (query) => {
         ...getBackToAdminInline(),
       });
 
+    const priceUZS = tmpl.priceUZS || tmpl.price * 100;
     return bot.sendMessage(
       chatId,
-      `✏️ *${tmpl.name}* — nimani o'zgartirmoqchisiz?\n\n⭐ Hozirgi narx: ${tmpl.price} Stars`,
+      `✏️ *${tmpl.name}* — nimani o'zgartirmoqchisiz?\n\n⭐ Stars narxi: ${tmpl.price} Stars\n💰 UZS narxi: ${formatUZS(priceUZS)}`,
       {
         parse_mode: "Markdown",
         reply_markup: {
@@ -1746,7 +1777,7 @@ bot.on("callback_query", async (query) => {
             ],
             [
               {
-                text: "⭐ Narxini o'zgartirish",
+                text: "💱 Narxlarini o'zgartirish",
                 callback_data: `editprice_${templateId}`,
               },
             ],
@@ -1774,7 +1805,7 @@ bot.on("callback_query", async (query) => {
   if (data.startsWith("editprice_") && isAdmin(userId)) {
     const templateId = data.replace("editprice_", "");
     setState(userId, { step: "waiting_edit_price", templateId });
-    return bot.sendMessage(chatId, "⭐ Yangi narxni kiriting (Stars soni):", {
+    return bot.sendMessage(chatId, "⭐ Yangi Stars narxini kiriting:", {
       reply_markup: {
         inline_keyboard: [
           [{ text: "❌ Bekor qilish", callback_data: "admin_cancel" }],
@@ -1820,10 +1851,7 @@ bot.on("callback_query", async (query) => {
         reply_markup: {
           inline_keyboard: [
             [
-              {
-                text: "✅ Ha, restart",
-                callback_data: "confirm_restart_main",
-              },
+              { text: "✅ Ha, restart", callback_data: "confirm_restart_main" },
               { text: "❌ Yo'q", callback_data: "back_admin" },
             ],
           ],
@@ -1838,7 +1866,7 @@ bot.on("callback_query", async (query) => {
       "🔄 Bot 3 soniyadan keyin qayta yuklanadi...",
     );
     setTimeout(() => {
-      process.exit(0); // PM2 will restart
+      process.exit(0);
     }, 3000);
     return;
   }
@@ -1848,24 +1876,12 @@ bot.on("callback_query", async (query) => {
     return showAdminDeployments(chatId);
   }
 
-  // ============================================================
-  // EARN MONEY MENU
-  // ============================================================
-  if (data === "earn_promo") {
-    return handlePromoStart(chatId, userId);
-  }
+  // ── Earn money ──
+  if (data === "earn_promo") return handlePromoStart(chatId, userId);
+  if (data === "earn_daily") return handleDailyBonus(chatId, userId);
+  if (data === "earn_referral") return showReferralInfo(chatId, userId);
 
-  if (data === "earn_daily") {
-    return handleDailyBonus(chatId, userId);
-  }
-
-  if (data === "earn_referral") {
-    return showReferralInfo(chatId, userId);
-  }
-
-  // ============================================================
-  // ADMIN: PROMO CODES
-  // ============================================================
+  // ── Admin: Promo codes ──
   if (data === "admin_promo" && isAdmin(userId)) {
     return showAdminPromo(chatId);
   }
@@ -1886,9 +1902,7 @@ bot.on("callback_query", async (query) => {
     );
   }
 
-  // ============================================================
-  // ADMIN: WALLET TOP-UPS
-  // ============================================================
+  // ── Admin: Top-ups ──
   if (data === "admin_topups" && isAdmin(userId)) {
     return showAdminTopups(chatId);
   }
@@ -1898,15 +1912,12 @@ bot.on("callback_query", async (query) => {
     const db = loadDB();
     const topup = db.topups.find((t) => t.id === topupId);
 
-    if (!topup) {
-      return bot.sendMessage(chatId, "❌ To'lov topilmadi.");
-    }
-    if (topup.status !== "pending") {
+    if (!topup) return bot.sendMessage(chatId, "❌ To'lov topilmadi.");
+    if (topup.status !== "pending")
       return bot.sendMessage(
         chatId,
         "⚠️ Bu to'lov allaqachon ko'rib chiqilgan.",
       );
-    }
 
     topup.status = "approved";
     topup.resolvedAt = new Date().toISOString();
@@ -1920,7 +1931,6 @@ bot.on("callback_query", async (query) => {
       chatId,
       `✅ To'lov tasdiqlandi: ${formatUZS(topup.amount)}`,
     );
-
     await bot
       .sendMessage(
         topup.userId,
@@ -1936,15 +1946,12 @@ bot.on("callback_query", async (query) => {
     const db = loadDB();
     const topup = db.topups.find((t) => t.id === topupId);
 
-    if (!topup) {
-      return bot.sendMessage(chatId, "❌ To'lov topilmadi.");
-    }
-    if (topup.status !== "pending") {
+    if (!topup) return bot.sendMessage(chatId, "❌ To'lov topilmadi.");
+    if (topup.status !== "pending")
       return bot.sendMessage(
         chatId,
         "⚠️ Bu to'lov allaqachon ko'rib chiqilgan.",
       );
-    }
 
     topup.status = "rejected";
     topup.resolvedAt = new Date().toISOString();
@@ -1954,7 +1961,6 @@ bot.on("callback_query", async (query) => {
       chatId,
       `❌ To'lov rad etildi: ${formatUZS(topup.amount)}`,
     );
-
     await bot
       .sendMessage(
         topup.userId,
@@ -1964,10 +1970,6 @@ bot.on("callback_query", async (query) => {
       .catch(() => {});
     return;
   }
-
-  // ============================================================
-  // BOT MANAGEMENT (User)
-  // ============================================================
 
   // ── Bot Stop ──
   if (data.startsWith("bot_stop_")) {
@@ -1990,8 +1992,6 @@ bot.on("callback_query", async (query) => {
     } else {
       await bot.sendMessage(chatId, "❌ Botni to'xtatishda xatolik.");
     }
-
-    // Refresh bot list
     return showMyBots(chatId, userId);
   }
 
@@ -2016,8 +2016,6 @@ bot.on("callback_query", async (query) => {
     } else {
       await bot.sendMessage(chatId, "❌ Botni restart qilishda xatolik.");
     }
-
-    // Refresh bot list
     return showMyBots(chatId, userId);
   }
 
@@ -2040,18 +2038,8 @@ bot.on("callback_query", async (query) => {
         parse_mode: "Markdown",
         reply_markup: {
           inline_keyboard: [
-            [
-              {
-                text: "🔄 Yangilash",
-                callback_data: `bot_logs_${purchaseId}`,
-              },
-            ],
-            [
-              {
-                text: "🔙 Botlarimga",
-                callback_data: "go_mybots",
-              },
-            ],
+            [{ text: "🔄 Yangilash", callback_data: `bot_logs_${purchaseId}` }],
+            [{ text: "🔙 Botlarimga", callback_data: "go_mybots" }],
           ],
         },
       },
@@ -2064,24 +2052,17 @@ bot.on("callback_query", async (query) => {
     return showMyBots(chatId, userId);
   }
 
-  // ── Go to my bots ──
-  if (data === "go_mybots") {
-    return showMyBots(chatId, userId);
-  }
-
-  // ============================================================
-  // BUY TEMPLATE — Admin bepul, User Telegram Stars
-  // ============================================================
+  // ── Buy template ──
   if (data.startsWith("buy_")) {
     const templateId = data.replace("buy_", "");
     const db = loadDB();
     const template = db.templates.find((t) => t.id === templateId);
 
-    if (!template) {
-      return bot.sendMessage(chatId, "❌ Shablon topilmadi.");
-    }
+    if (!template) return bot.sendMessage(chatId, "❌ Shablon topilmadi.");
 
-    // ✅ ADMIN — BEPUL DEPLOY
+    const priceUZS = template.priceUZS || template.price * 100;
+
+    // Admin — bepul deploy
     if (isAdmin(userId)) {
       const purchase = {
         id: `purchase_${Date.now()}`,
@@ -2093,7 +2074,6 @@ bot.on("callback_query", async (query) => {
         date: new Date().toISOString(),
         deployed: false,
       };
-
       db.purchases.push(purchase);
       saveDB(db);
 
@@ -2102,16 +2082,16 @@ bot.on("callback_query", async (query) => {
         `👑 *Admin — bepul deploy!*\n\n📦 Shablon: ${template.name}\n\nMa'lumotlarni so'raymiz...`,
         { parse_mode: "Markdown" },
       );
-
       return startPlaceholderCollection(chatId, userId, template, purchase.id);
     }
 
-    // ✅ USER — TO'LOV USULINI TANLASH
+    // User — to'lov usulini tanlash
     const balance = getBalance(userId);
     return bot.sendMessage(
       chatId,
       `📦 *${template.name}*\n\n` +
-        `⭐ Narxi: *${template.price} Stars* / *${formatUZS(template.price)}*\n` +
+        `⭐ Stars narxi: *${template.price} Stars*\n` +
+        `💰 UZS narxi: *${formatUZS(priceUZS)}*\n` +
         `💼 Hamyoningizdagi balans: *${formatUZS(balance)}*\n\n` +
         `💳 Qanday to'lamoqchisiz?`,
       {
@@ -2120,13 +2100,13 @@ bot.on("callback_query", async (query) => {
           inline_keyboard: [
             [
               {
-                text: "💳 Hamyon orqali",
+                text: `💳 Hamyon — ${formatUZS(priceUZS)}`,
                 callback_data: `paywallet_${template.id}`,
               },
             ],
             [
               {
-                text: "⭐ Telegram Stars orqali",
+                text: `⭐ Telegram Stars — ${template.price} Stars`,
                 callback_data: `paystars_${template.id}`,
               },
             ],
@@ -2137,7 +2117,7 @@ bot.on("callback_query", async (query) => {
     );
   }
 
-  // ── Pay with wallet balance ──
+  // ── Pay with wallet ──
   if (data.startsWith("paywallet_")) {
     const templateId = data.replace("paywallet_", "");
     const db = loadDB();
@@ -2147,20 +2127,17 @@ bot.on("callback_query", async (query) => {
     const user = db.users.find((u) => u.id === userId);
     if (!user) return bot.sendMessage(chatId, "❌ Xatolik yuz berdi.");
 
-    if (user.balance < template.price) {
+    const priceUZS = template.priceUZS || template.price * 100;
+
+    if (user.balance < priceUZS) {
       return bot.sendMessage(
         chatId,
-        `❌ *Balansingiz yetarli emas!*\n\n💼 Balans: ${formatUZS(user.balance)}\n💰 Kerak: ${formatUZS(template.price)}\n\nHamyoningizni to'ldiring.`,
+        `❌ *Balansingiz yetarli emas!*\n\n💼 Balans: ${formatUZS(user.balance)}\n💰 Kerak: ${formatUZS(priceUZS)}\n\nHamyoningizni to'ldiring.`,
         {
           parse_mode: "Markdown",
           reply_markup: {
             inline_keyboard: [
-              [
-                {
-                  text: "💳 Hamyonni to'ldirish",
-                  callback_data: "go_topup",
-                },
-              ],
+              [{ text: "💳 Hamyonni to'ldirish", callback_data: "go_topup" }],
               [{ text: "🔙 Katalogga", callback_data: "go_catalog" }],
             ],
           },
@@ -2168,7 +2145,7 @@ bot.on("callback_query", async (query) => {
       );
     }
 
-    user.balance = Math.round((user.balance - template.price) * 100) / 100;
+    user.balance = Math.round((user.balance - priceUZS) * 100) / 100;
 
     const purchase = {
       id: `purchase_${Date.now()}`,
@@ -2176,7 +2153,7 @@ bot.on("callback_query", async (query) => {
       templateId: template.id,
       templateName: template.name,
       fileName: template.fileName,
-      amount: template.price,
+      amount: priceUZS,
       method: "wallet",
       date: new Date().toISOString(),
       deployed: false,
@@ -2186,14 +2163,14 @@ bot.on("callback_query", async (query) => {
 
     await bot.sendMessage(
       chatId,
-      `✅ *To'lov muvaffaqiyatli!*\n\n📦 Shablon: ${template.name}\n💳 To'landi: ${formatUZS(template.price)} (hamyondan)\n💼 Qolgan balans: ${formatUZS(user.balance)}\n\nMa'lumotlarni so'raymiz...`,
+      `✅ *To'lov muvaffaqiyatli!*\n\n📦 Shablon: ${template.name}\n💳 To'landi: ${formatUZS(priceUZS)} (hamyondan)\n💼 Qolgan balans: ${formatUZS(user.balance)}\n\nMa'lumotlarni so'raymiz...`,
       { parse_mode: "Markdown" },
     );
 
     bot
       .sendMessage(
         ADMIN_ID,
-        `💰 *Yangi xarid (hamyon)!*\n\n👤 User: \`${userId}\`\n📦 Shablon: ${template.name}\n💵 Summa: ${formatUZS(template.price)}`,
+        `💰 *Yangi xarid (hamyon)!*\n\n👤 User: \`${userId}\`\n📦 Shablon: ${template.name}\n💵 Summa: ${formatUZS(priceUZS)}`,
         { parse_mode: "Markdown" },
       )
       .catch(() => {});
@@ -2201,7 +2178,7 @@ bot.on("callback_query", async (query) => {
     return startPlaceholderCollection(chatId, userId, template, purchase.id);
   }
 
-  // ── Pay with Telegram Stars ──
+  // ── Pay with Stars ──
   if (data.startsWith("paystars_")) {
     const templateId = data.replace("paystars_", "");
     const db = loadDB();
@@ -2225,7 +2202,7 @@ bot.on("callback_query", async (query) => {
     return;
   }
 
-  // ── Go to top-up from insufficient balance prompt ──
+  // ── Go to top-up ──
   if (data === "go_topup") {
     return showWalletTopupPrompt(chatId, userId);
   }
@@ -2237,10 +2214,8 @@ bot.on("callback_query", async (query) => {
     const purchase = db.purchases.find(
       (p) => p.id === purchaseId && (p.userId === userId || isAdmin(userId)),
     );
-
     if (!purchase) return bot.sendMessage(chatId, "❌ Xarid topilmadi.");
 
-    // Confirmation
     return bot.sendMessage(
       chatId,
       `⚠️ *${purchase.templateName}* botini o'chirmoqchimisiz?\n\nBu qaytarib bo'lmaydi!`,
@@ -2253,10 +2228,7 @@ bot.on("callback_query", async (query) => {
                 text: "✅ Ha, o'chirish",
                 callback_data: `confirm_undeploy_${purchaseId}`,
               },
-              {
-                text: "❌ Yo'q",
-                callback_data: "go_mybots",
-              },
+              { text: "❌ Yo'q", callback_data: "go_mybots" },
             ],
           ],
         },
@@ -2271,7 +2243,6 @@ bot.on("callback_query", async (query) => {
     const purchase = db.purchases.find(
       (p) => p.id === purchaseId && (p.userId === userId || isAdmin(userId)),
     );
-
     if (!purchase) return bot.sendMessage(chatId, "❌ Xarid topilmadi.");
 
     try {
@@ -2331,6 +2302,7 @@ bot.on("message", async (msg) => {
     templateName: template.name,
     fileName: template.fileName,
     amount: payment.total_amount,
+    method: "stars",
     date: new Date().toISOString(),
     deployed: false,
   };
@@ -2343,11 +2315,10 @@ bot.on("message", async (msg) => {
     { parse_mode: "Markdown" },
   );
 
-  // Notify admin
   bot
     .sendMessage(
       ADMIN_ID,
-      `💰 *Yangi xarid!*\n\n👤 User: [${msg.from.first_name}](tg://user?id=${userId})\n🆔 ID: \`${userId}\`\n📦 Shablon: ${template.name}\n⭐ Summa: ${payment.total_amount} Stars`,
+      `💰 *Yangi xarid (Stars)!*\n\n👤 User: [${msg.from.first_name}](tg://user?id=${userId})\n🆔 ID: \`${userId}\`\n📦 Shablon: ${template.name}\n⭐ Summa: ${payment.total_amount} Stars`,
       { parse_mode: "Markdown" },
     )
     .catch(() => {});
