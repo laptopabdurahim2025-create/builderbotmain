@@ -2113,3 +2113,4 @@ console.log(`📢 Channel: ${NEWS_CHANNEL_ID}`);
 console.log("📁 Templates:", TEMPLATES_DIR);
 console.log("📁 Deployments:", DEPLOYMENTS_DIR);
 console.log("✅ Bot is ready!");
+// finally, start the bot
